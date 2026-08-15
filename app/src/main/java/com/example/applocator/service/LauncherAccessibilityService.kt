@@ -38,6 +38,7 @@ class LauncherAccessibilityService : AccessibilityService() {
 
         // 常见桌面/启动器包名（兜底识别）
         private val LAUNCHERS = setOf(
+            "com.android.launcher",
             "com.android.launcher3",
             "com.google.android.apps.nexuslauncher",
             "com.miui.home",
