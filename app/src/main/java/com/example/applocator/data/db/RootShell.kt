@@ -25,11 +25,11 @@ object RootShell {
         out.ifBlank { err }
     }.getOrNull()
 
-    /** 以二进制方式把需 root 权限的远程文件流式复制到本地文件 */
+    /** 以二进制方式把需 root 权限的远程文件流式复制到本地文件（桌面库可能较大，放宽超时） */
     fun catToFile(remotePath: String, localFile: File): Boolean = runCatching {
         val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat \"$remotePath\""))
         localFile.outputStream().use { os -> p.inputStream.copyTo(os) }
-        p.waitFor(20, TimeUnit.SECONDS)
+        p.waitFor(60, TimeUnit.SECONDS)
         localFile.length() > 0
     }.getOrDefault(false)
 
