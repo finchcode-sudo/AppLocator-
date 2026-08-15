@@ -1,5 +1,6 @@
 package com.example.applocator
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -115,7 +116,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun isServiceEnabled(): Boolean = runCatching {
         val am = getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
-        am.getEnabledAccessibilityServiceList(AccessibilityManager.FEEDBACK_ALL_MASK)
+        am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
             .any { it.resolveInfo.serviceInfo.packageName == packageName }
     }.getOrDefault(false)
 
