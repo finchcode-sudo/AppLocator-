@@ -19,7 +19,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 生成 gradlew（仓库缺失，现场生成，用兼容 AGP 8.5.2 的版本）
+      - name: 生成 gradlew（仓库缺失，现场生成，兼容 AGP 8.5.2）
         uses: gradle/actions/setup-gradle@v4
       - run: gradle wrapper --gradle-version 8.9
 
