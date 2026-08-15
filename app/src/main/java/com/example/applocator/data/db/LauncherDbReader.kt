@@ -11,10 +11,9 @@ import java.io.File
 /**
  * Root 模式：读取桌面数据库 launcher.db，解析每个应用图标的精确位置。
  *
- * 支持 Launcher3 系（AOSP/Pixel/Trebuchet/EMUI/三星/MIUI/ColorOS 等）通用 schema：
+ * 支持 Launcher3 系（AOSP/Pixel/Trebuchet/EMUI/三星/MIUI 等）通用 schema：
  * workspace 表：screen(页码)、cellX(列)、cellY(行)、container(-100 桌面 / -101 Dock / 文件夹id)、
  * itemType(0 应用 / 1 文件夹 / 2 小部件 / 4 快捷方式)、title、intent
- * ColorOS/OPPO：表名 singledesktopitems，数据库在 /data/user_de/0/ 下
  */
 object LauncherDbReader {
 
@@ -29,6 +28,22 @@ object LauncherDbReader {
     // 各桌面数据库中的条目表名（Launcher3系：workspace/favorites；ColorOS/OPPO：singledesktopitems）
     private val TABLE_CANDIDATES = listOf(
         "workspace", "favorites", "singledesktopitems", "singledesktopitems_simple"
+    )
+
+    // 常见桌面/启动器包名（兜底遍历数据库，避免包可见性限制导致解析不到）
+    private val CANDIDATE_LAUNCHERS = listOf(
+        "com.android.launcher",               // AOSP / ColorOS / OPPO 系统桌面
+        "com.android.launcher3",
+        "com.google.android.apps.nexuslauncher",
+        "com.oplus.launcher",                 // ColorOS 12+
+        "com.coloros.launcher",               // ColorOS 11-
+        "com.oneplus.launcher",
+        "com.oppo.launcher",
+        "com.miui.home",
+        "com.huawei.android.launcher",
+        "com.sec.android.app.launcher",
+        "com.vivo.launcher",
+        "com.meizu.flyme.launcher"
     )
 
     private data class WorkspaceRow(
@@ -56,12 +71,41 @@ object LauncherDbReader {
             ?.activityInfo?.packageName
     }.getOrNull()
 
+    /** 用 root shell 解析默认桌面（不受包可见性限制，优先使用） */
+    fun resolveLauncherViaShell(): String? {
+        val out = RootShell.exec(
+            "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME"
+        ) ?: return null
+        val line = out.lineSequence().lastOrNull { it.contains("/") && !it.contains(" ") }
+            ?: return null
+        return line.substringBefore("/")
+    }
+
     /** 扫描：返回 null 表示 root 不可用或数据库读取失败 */
     fun scan(context: Context): ScanResult? {
         if (!RootShell.isRooted()) return null
-        val pkg = resolveLauncher(context) ?: return null
         val cacheDir = File(context.cacheDir, "launcher_db").apply { mkdirs() }
 
+        // 候选桌面包名：shell 解析 > PackageManager 解析 > 已知列表兜底
+        val pkgs = LinkedHashSet<String>()
+        resolveLauncherViaShell()?.let { pkgs.add(it) }
+        resolveLauncher(context)?.let { pkgs.add(it) }
+        pkgs.addAll(CANDIDATE_LAUNCHERS)
+
+        // 遍历包名 + 路径组合，找到第一个可用的桌面数据库
+        for (pkg in pkgs) {
+            val result = findAndParseDb(context, pkg, cacheDir)
+            if (result != null) return result
+        }
+        return null
+    }
+
+    /** 对单个桌面包名尝试所有数据库路径，成功则解析 */
+    private fun findAndParseDb(
+        context: Context,
+        pkg: String,
+        cacheDir: File
+    ): ScanResult? {
         // 候选数据库路径（兼容不同 ROM，含设备加密存储 user_de）
         val candidates = buildList {
             for (base in listOf(
@@ -75,29 +119,21 @@ object LauncherDbReader {
             }
         }.distinct()
 
-        var dbFile: File? = null
-        var dbPath: String? = null
         for (p in candidates) {
-            if (RootShell.exists(p)) {
-                val local = File(cacheDir, "launcher.db")
-                if (RootShell.catToFile(p, local) && local.length() > 10) {
-                    // 连同 WAL/journal 一起复制，避免丢失最新写入
-                    RootShell.catToFile(p + "-wal", File(cacheDir, "launcher.db-wal"))
-                    RootShell.catToFile(p + "-shm", File(cacheDir, "launcher.db-shm"))
-                    RootShell.catToFile(p + "-journal", File(cacheDir, "launcher.db-journal"))
-                    dbFile = local
-                    dbPath = p
-                    break
-                }
-            }
+            if (!RootShell.exists(p)) continue
+            val local = File(cacheDir, "launcher.db")
+            if (!RootShell.catToFile(p, local) || local.length() <= 10) continue
+
+            // 连同 WAL/journal 一起复制，避免丢失最新写入
+            RootShell.catToFile(p + "-wal", File(cacheDir, "launcher.db-wal"))
+            RootShell.catToFile(p + "-shm", File(cacheDir, "launcher.db-shm"))
+            RootShell.catToFile(p + "-journal", File(cacheDir, "launcher.db-journal"))
+
+            val rows = readWorkspaceRows(local) ?: continue
+            if (rows.isEmpty()) continue
+            return ScanResult(pkg, p, buildItems(context, rows))
         }
-        if (dbFile == null) return null
-
-        val rows = readWorkspaceRows(dbFile) ?: return null
-        if (rows.isEmpty()) return null
-
-        val items = buildItems(context, rows)
-        return ScanResult(pkg, dbPath ?: "", items)
+        return null
     }
 
     private fun readWorkspaceRows(dbFile: File): List<WorkspaceRow>? = runCatching {
