@@ -19,17 +19,15 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 安装 Gradle 并生成 Wrapper
+      - name: 生成 gradlew（仓库缺失，现场生成，用兼容 AGP 8.5.2 的版本）
         uses: gradle/actions/setup-gradle@v4
-
-      - name: 生成 gradlew（若仓库缺失）
-        run: gradle wrapper --gradle-version 8.5
+      - run: gradle wrapper --gradle-version 8.9
 
       - name: 赋予 gradlew 执行权限
         run: chmod +x gradlew
 
       - name: 编译 Debug 版 APK
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleDebug --stacktrace
 
       - name: 上传 APK 产物
         uses: actions/upload-artifact@v4
