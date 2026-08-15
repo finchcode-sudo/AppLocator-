@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">桌面应用定位器</string>
+    <string name="accessibility_label">桌面应用定位服务</string>
+    <string name="accessibility_description">读取桌面（启动器）视图层级，识别每个应用图标在桌面上的位置（页码、行列、文件夹）。数据仅在本机处理，不会上传。</string>
+</resources>
