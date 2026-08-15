@@ -11,9 +11,10 @@ import java.io.File
 /**
  * Root 模式：读取桌面数据库 launcher.db，解析每个应用图标的精确位置。
  *
- * 支持 Launcher3 系（AOSP/Pixel/Trebuchet/EMUI/三星/MIUI 等）通用 schema：
+ * 支持 Launcher3 系（AOSP/Pixel/Trebuchet/EMUI/三星/MIUI/ColorOS 等）通用 schema：
  * workspace 表：screen(页码)、cellX(列)、cellY(行)、container(-100 桌面 / -101 Dock / 文件夹id)、
  * itemType(0 应用 / 1 文件夹 / 2 小部件 / 4 快捷方式)、title、intent
+ * ColorOS/OPPO：表名 singledesktopitems，数据库在 /data/user_de/0/ 下
  */
 object LauncherDbReader {
 
@@ -24,6 +25,11 @@ object LauncherDbReader {
     private const val ITEM_APP = 0
     private const val ITEM_FOLDER = 1
     private const val ITEM_DEEP_SHORTCUT = 4
+
+    // 各桌面数据库中的条目表名（Launcher3系：workspace/favorites；ColorOS/OPPO：singledesktopitems）
+    private val TABLE_CANDIDATES = listOf(
+        "workspace", "favorites", "singledesktopitems", "singledesktopitems_simple"
+    )
 
     private data class WorkspaceRow(
         val id: Long,
@@ -56,9 +62,13 @@ object LauncherDbReader {
         val pkg = resolveLauncher(context) ?: return null
         val cacheDir = File(context.cacheDir, "launcher_db").apply { mkdirs() }
 
-        // 候选数据库路径（兼容不同 ROM）
+        // 候选数据库路径（兼容不同 ROM，含设备加密存储 user_de）
         val candidates = buildList {
-            for (base in listOf("/data/user/0/$pkg", "/data/data/$pkg")) {
+            for (base in listOf(
+                "/data/user_de/0/$pkg",
+                "/data/user/0/$pkg",
+                "/data/data/$pkg"
+            )) {
                 for (rel in listOf("databases/launcher.db", "databases/app_icons.db")) {
                     add("$base/$rel")
                 }
@@ -71,9 +81,10 @@ object LauncherDbReader {
             if (RootShell.exists(p)) {
                 val local = File(cacheDir, "launcher.db")
                 if (RootShell.catToFile(p, local) && local.length() > 10) {
-                    // 连同 WAL 一起复制，避免丢失最新写入
+                    // 连同 WAL/journal 一起复制，避免丢失最新写入
                     RootShell.catToFile(p + "-wal", File(cacheDir, "launcher.db-wal"))
                     RootShell.catToFile(p + "-shm", File(cacheDir, "launcher.db-shm"))
+                    RootShell.catToFile(p + "-journal", File(cacheDir, "launcher.db-journal"))
                     dbFile = local
                     dbPath = p
                     break
@@ -97,8 +108,7 @@ object LauncherDbReader {
             ).use { c ->
                 buildList { while (c.moveToNext()) add(c.getString(0)) }
             }
-            val table = tables.firstOrNull { it == "workspace" || it == "favorites" }
-                ?: return null
+            val table = tables.firstOrNull { it in TABLE_CANDIDATES } ?: return null
 
             // 列名映射（兼容不同桌面）
             val cols = db.rawQuery("PRAGMA table_info($table)", null).use { c ->
